@@ -4,13 +4,14 @@ const Recorder = () => {
     const [recording, setRecording] = useState(false);
     const [audioURL, setAudioURL] = useState('');
     const [transcript, setTranscript] = useState('');
+    const [minutes, setMinutes] = useState('');
     const [recordingLabel, setRecordingLabel] = useState('');
     const [recordingCount, setRecordingCount] = useState(1);
     const mediaRecorderRef = useRef(null);
 
     const startRecording = async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } }); // Ensure sample rate is 16,000 Hz
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
 
         const audioChunks = [];
@@ -58,8 +59,28 @@ const Recorder = () => {
             });
     };
 
+    const generateMinutes = () => {
+        fetch('http://127.0.0.1:5000/generate-mom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript }),
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.minutes_of_meeting) {
+                    setMinutes(data.minutes_of_meeting);
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            })
+            .catch((err) => {
+                console.error('Error generating minutes:', err);
+                setMinutes('An error occurred while generating minutes.');
+            });
+    };
+
     return (
-        <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
+        <div>
             <h1>Audio Recorder</h1>
             <button onClick={startRecording} disabled={recording}>
                 Start Recording
@@ -68,44 +89,24 @@ const Recorder = () => {
                 Stop Recording
             </button>
             {audioURL && (
-                <div style={{ marginTop: '20px' }}>
+                <div>
                     <h3>{recordingLabel}</h3>
                     <audio controls src={audioURL}></audio>
                 </div>
             )}
             {transcript && (
-                <div
-                    style={{
-                        marginTop: '20px',
-                        padding: '10px',
-                        border: '1px solid #ddd',
-                        borderRadius: '8px',
-                        backgroundColor: '#f9f9f9',
-                        width: '300px',
-                    }}
-                >
+                <div style={{ marginTop: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
                     <h3>Transcript:</h3>
                     <p>{transcript}</p>
-                    <button
-                        onClick={() => {
-                            const blob = new Blob([transcript], { type: 'text/plain' });
-                            const link = document.createElement('a');
-                            link.href = URL.createObjectURL(blob);
-                            link.download = `${recordingLabel.replace(' ', '_')}_transcript.txt`;
-                            link.click();
-                        }}
-                        style={{
-                            marginTop: '10px',
-                            padding: '10px 20px',
-                            border: 'none',
-                            backgroundColor: '#007BFF',
-                            color: 'white',
-                            borderRadius: '5px',
-                            cursor: 'pointer',
-                        }}
-                    >
-                        Download Transcript
+                    <button onClick={generateMinutes} style={{ marginTop: '10px' }}>
+                        Generate Minutes of Meeting
                     </button>
+                </div>
+            )}
+            {minutes && (
+                <div style={{ marginTop: '20px', padding: '10px', border: '1px solid #007bff', borderRadius: '8px', backgroundColor: '#f1f8ff' }}>
+                    <h3>Minutes of Meeting:</h3>
+                    <p>{minutes}</p>
                 </div>
             )}
         </div>
