@@ -1,5 +1,5 @@
-import React from 'react';
-import Recorder from './components/Recorder';
+import React from "react";
+import Recorder from "./components/Recorder";
 
 const App = () => {
     return (

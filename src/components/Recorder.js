@@ -1,112 +1,136 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 
 const Recorder = () => {
     const [recording, setRecording] = useState(false);
-    const [audioURL, setAudioURL] = useState('');
-    const [transcript, setTranscript] = useState('');
-    const [minutes, setMinutes] = useState('');
-    const [recordingLabel, setRecordingLabel] = useState('');
-    const [recordingCount, setRecordingCount] = useState(1);
+    const [audioURL, setAudioURL] = useState(null);
+    const [transcript, setTranscript] = useState("");
+    const [minutesOfMeeting, setMinutesOfMeeting] = useState("");
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [errorMessage, setErrorMessage] = useState("");
     const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
 
+    // Start Recording Function (Unchanged)
     const startRecording = async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
 
-        const audioChunks = [];
-        mediaRecorder.ondataavailable = (event) => {
-            audioChunks.push(event.data);
-        };
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunksRef.current.push(event.data);
+            };
 
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const url = URL.createObjectURL(audioBlob);
-            setAudioURL(url);
-            setRecordingLabel(`Recording #${recordingCount}`);
-            setRecordingCount((prevCount) => prevCount + 1);
-            uploadAudio(audioBlob);
-        };
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                audioChunksRef.current = [];
+                const url = URL.createObjectURL(audioBlob);
+                setAudioURL(url);
+                uploadAudio(audioBlob);
+            };
 
-        mediaRecorder.start();
-        setRecording(true);
+            mediaRecorder.start();
+            setRecording(true);
+        } catch (error) {
+            console.error("Error starting recording:", error);
+        }
     };
 
+    // Stop Recording Function (Unchanged)
     const stopRecording = () => {
-        mediaRecorderRef.current.stop();
-        setRecording(false);
+        if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+            setRecording(false);
+        }
     };
 
-    const uploadAudio = (audioBlob) => {
+    // Upload Audio Function (Minor Improvements)
+    const uploadAudio = async (audioBlob) => {
         const formData = new FormData();
-        formData.append('audio', audioBlob);
+        formData.append("file", audioBlob, "recording.webm");
+        setIsProcessing(true);
 
-        fetch('http://127.0.0.1:5000/transcribe', {
-            method: 'POST',
-            body: formData,
-        })
-            .then((res) => res.json())
-            .then((data) => {
-                if (data.transcript) {
-                    setTranscript(data.transcript);
-                } else {
-                    alert(`Error: ${data.error}`);
-                }
-            })
-            .catch((err) => {
-                console.error('Error uploading audio:', err);
-                setTranscript('An error occurred while processing the audio.');
+        try {
+            const response = await fetch("http://127.0.0.1:5000/transcribe", {
+                method: "POST",
+                body: formData,
             });
+
+            const data = await response.json();
+            if (response.ok) {
+                setTranscript(data.transcript);
+                setErrorMessage(""); // Clear any previous error
+            } else {
+                setErrorMessage(data.error || "Transcription failed. Try again.");
+            }
+        } catch (error) {
+            setErrorMessage("Error uploading audio.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
-    const generateMinutes = () => {
-        fetch('http://127.0.0.1:5000/generate-mom', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript }),
-        })
-            .then((res) => res.json())
-            .then((data) => {
-                if (data.minutes_of_meeting) {
-                    setMinutes(data.minutes_of_meeting);
-                } else {
-                    alert(`Error: ${data.error}`);
-                }
-            })
-            .catch((err) => {
-                console.error('Error generating minutes:', err);
-                setMinutes('An error occurred while generating minutes.');
+    // Generate Minutes of Meeting Function (Enhanced Logging)
+    const generateMinutesOfMeeting = async () => {
+        if (!transcript) {
+            setMinutesOfMeeting("Transcript is empty. Please record and transcribe first.");
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            const response = await fetch("http://127.0.0.1:5000/generate_mom", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ transcript }),
             });
+
+            const data = await response.json();
+            if (response.ok) {
+                setMinutesOfMeeting(data.mom);
+                setErrorMessage(""); // Clear any previous error
+            } else {
+                setErrorMessage(data.error || "Failed to generate MoM.");
+            }
+        } catch (error) {
+            setErrorMessage("Error generating MoM.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     return (
         <div>
-            <h1>Audio Recorder</h1>
-            <button onClick={startRecording} disabled={recording}>
-                Start Recording
-            </button>
-            <button onClick={stopRecording} disabled={!recording}>
-                Stop Recording
-            </button>
+            <h1>Meeting Recorder</h1>
+            <button onClick={startRecording} disabled={recording}>Start Recording</button>
+            <button onClick={stopRecording} disabled={!recording}>Stop Recording</button>
+
             {audioURL && (
                 <div>
-                    <h3>{recordingLabel}</h3>
-                    <audio controls src={audioURL}></audio>
-                </div>
-            )}
-            {transcript && (
-                <div style={{ marginTop: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
-                    <h3>Transcript:</h3>
-                    <p>{transcript}</p>
-                    <button onClick={generateMinutes} style={{ marginTop: '10px' }}>
-                        Generate Minutes of Meeting
+                    <h3>Recorded Audio:</h3>
+                    <audio src={audioURL} controls />
+                    <button onClick={generateMinutesOfMeeting} disabled={isProcessing}>
+                        Generate Transcript
                     </button>
                 </div>
             )}
-            {minutes && (
-                <div style={{ marginTop: '20px', padding: '10px', border: '1px solid #007bff', borderRadius: '8px', backgroundColor: '#f1f8ff' }}>
+
+            {isProcessing && <p>Processing...</p>}
+            {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
+
+            {transcript && (
+                <div>
+                    <h3>Transcript:</h3>
+                    <p>{transcript}</p>
+                </div>
+            )}
+
+            {minutesOfMeeting && (
+                <div>
                     <h3>Minutes of Meeting:</h3>
-                    <p>{minutes}</p>
+                    <p>{minutesOfMeeting}</p>
                 </div>
             )}
         </div>
